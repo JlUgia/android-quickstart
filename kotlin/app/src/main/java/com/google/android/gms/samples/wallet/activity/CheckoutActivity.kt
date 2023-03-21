@@ -17,14 +17,17 @@
 package com.google.android.gms.samples.wallet.activity
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult
 import androidx.activity.viewModels
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
 import com.google.android.gms.common.api.ApiException
@@ -35,8 +38,27 @@ import com.google.android.gms.samples.wallet.R
 import com.google.android.gms.samples.wallet.databinding.ActivityCheckoutBinding
 import com.google.android.gms.samples.wallet.viewmodel.CheckoutViewModel
 import com.google.android.gms.wallet.PaymentData
+import com.google.android.gms.wallet.TransactionInfo
+import com.google.android.gms.wallet.WalletConstants
+import com.stripe.android.PaymentConfiguration
+import com.stripe.android.paymentsheet.PaymentSheet
+import com.stripe.android.paymentsheet.PaymentSheetResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.FormBody
+import okhttp3.MediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
 import org.json.JSONException
 import org.json.JSONObject
+import java.io.IOException
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.*
 
 /**
  * Checkout implementation for the app
@@ -46,17 +68,24 @@ class CheckoutActivity : AppCompatActivity() {
     private val addToGoogleWalletRequestCode = 1000
 
     private val model: CheckoutViewModel by viewModels()
+    private val clientToken =
+        "eyJ2ZXJzaW9uIjoyLCJhdXRob3JpemF0aW9uRmluZ2VycHJpbnQiOiJleUowZVhBaU9pSktWMVFpTENKaGJHY2lPaUpGVXpJMU5pSXNJbXRwWkNJNklqSXdNVGd3TkRJMk1UWXRjMkZ1WkdKdmVDSXNJbWx6Y3lJNkltaDBkSEJ6T2k4dllYQnBMbk5oYm1SaWIzZ3VZbkpoYVc1MGNtVmxaMkYwWlhkaGVTNWpiMjBpZlEuZXlKbGVIQWlPakUyTnpZM01UTXhPREFzSW1wMGFTSTZJbUpsWkdFM1l6QmtMVEV4TTJNdE5HRmhNeTFpTWpBekxUTmpOR1V4TTJKaU1qWTFOeUlzSW5OMVlpSTZJbmhtYWpZMWJtcDBhbTEyTjI0ek4zTWlMQ0pwYzNNaU9pSm9kSFJ3Y3pvdkwyRndhUzV6WVc1a1ltOTRMbUp5WVdsdWRISmxaV2RoZEdWM1lYa3VZMjl0SWl3aWJXVnlZMmhoYm5RaU9uc2ljSFZpYkdsalgybGtJam9pZUdacU5qVnVhblJxYlhZM2JqTTNjeUlzSW5abGNtbG1lVjlqWVhKa1gySjVYMlJsWm1GMWJIUWlPbVpoYkhObGZTd2ljbWxuYUhSeklqcGJJbTFoYm1GblpWOTJZWFZzZENKZExDSnpZMjl3WlNJNld5SkNjbUZwYm5SeVpXVTZWbUYxYkhRaVhTd2liM0IwYVc5dWN5STZlMzE5LnIta19HMk5UTGUxbnR6WDRfUktQYUU4V0w0Rm9yT1E3dU1rQ1U1WVo1dllwb2pnTDUtZTBlUVoxOWRNczRiVjJzaWxkandyaHNWaEVHYkVlTHV4V1lRIiwiY29uZmlnVXJsIjoiaHR0cHM6Ly9hcGkuc2FuZGJveC5icmFpbnRyZWVnYXRld2F5LmNvbTo0NDMvbWVyY2hhbnRzL3hmajY1bmp0am12N24zN3MvY2xpZW50X2FwaS92MS9jb25maWd1cmF0aW9uIiwiZ3JhcGhRTCI6eyJ1cmwiOiJodHRwczovL3BheW1lbnRzLnNhbmRib3guYnJhaW50cmVlLWFwaS5jb20vZ3JhcGhxbCIsImRhdGUiOiIyMDE4LTA1LTA4IiwiZmVhdHVyZXMiOlsidG9rZW5pemVfY3JlZGl0X2NhcmRzIl19LCJjbGllbnRBcGlVcmwiOiJodHRwczovL2FwaS5zYW5kYm94LmJyYWludHJlZWdhdGV3YXkuY29tOjQ0My9tZXJjaGFudHMveGZqNjVuanRqbXY3bjM3cy9jbGllbnRfYXBpIiwiZW52aXJvbm1lbnQiOiJzYW5kYm94IiwibWVyY2hhbnRJZCI6InhmajY1bmp0am12N24zN3MiLCJhc3NldHNVcmwiOiJodHRwczovL2Fzc2V0cy5icmFpbnRyZWVnYXRld2F5LmNvbSIsImF1dGhVcmwiOiJodHRwczovL2F1dGgudmVubW8uc2FuZGJveC5icmFpbnRyZWVnYXRld2F5LmNvbSIsInZlbm1vIjoib2ZmIiwiY2hhbGxlbmdlcyI6W10sInRocmVlRFNlY3VyZUVuYWJsZWQiOnRydWUsImFuYWx5dGljcyI6eyJ1cmwiOiJodHRwczovL29yaWdpbi1hbmFseXRpY3Mtc2FuZC5zYW5kYm94LmJyYWludHJlZS1hcGkuY29tL3hmajY1bmp0am12N24zN3MifSwicGF5cGFsRW5hYmxlZCI6dHJ1ZSwicGF5cGFsIjp7ImJpbGxpbmdBZ3JlZW1lbnRzRW5hYmxlZCI6dHJ1ZSwiZW52aXJvbm1lbnROb05ldHdvcmsiOnRydWUsInVudmV0dGVkTWVyY2hhbnQiOmZhbHNlLCJhbGxvd0h0dHAiOnRydWUsImRpc3BsYXlOYW1lIjoiVGhlIFQtc2hpcnQgU2hvcCIsImNsaWVudElkIjpudWxsLCJwcml2YWN5VXJsIjoiaHR0cDovL2V4YW1wbGUuY29tL3BwIiwidXNlckFncmVlbWVudFVybCI6Imh0dHA6Ly9leGFtcGxlLmNvbS90b3MiLCJiYXNlVXJsIjoiaHR0cHM6Ly9hc3NldHMuYnJhaW50cmVlZ2F0ZXdheS5jb20iLCJhc3NldHNVcmwiOiJodHRwczovL2NoZWNrb3V0LnBheXBhbC5jb20iLCJkaXJlY3RCYXNlVXJsIjpudWxsLCJlbnZpcm9ubWVudCI6Im9mZmxpbmUiLCJicmFpbnRyZWVDbGllbnRJZCI6Im1hc3RlcmNsaWVudDMiLCJtZXJjaGFudEFjY291bnRJZCI6InRoZXRzaGlydHNob3AiLCJjdXJyZW5jeUlzb0NvZGUiOiJVU0QifX0="
 
     private lateinit var layout: ActivityCheckoutBinding
     private lateinit var googlePayButton: View
     private lateinit var addToGoogleWalletButton: View
+    private lateinit var paymentSheet: PaymentSheet
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Use view binding to access the UI elements
         layout = ActivityCheckoutBinding.inflate(layoutInflater)
         setContentView(layout.root)
+
+        paymentSheet = PaymentSheet(this, ::onPaymentSheetResult)
+
 
         // Setup buttons
         googlePayButton = layout.googlePayButton.root
@@ -66,8 +95,25 @@ class CheckoutActivity : AppCompatActivity() {
         addToGoogleWalletButton.setOnClickListener { requestSavePass() }
 
         // Check Google Pay availability
-        model.canUseGooglePay.observe(this, Observer(::setGooglePayAvailable))
+        //model.canUseGooglePay.observe(this, Observer(::setGooglePayAvailable))
         model.canSavePasses.observe(this, Observer(::setAddToGoogleWalletAvailable))
+    }
+
+    private fun onPaymentSheetResult(paymentSheetResult: PaymentSheetResult) {
+        // implemented in the next steps
+        print(paymentSheetResult)
+        when(paymentSheetResult) {
+            is PaymentSheetResult.Canceled -> {
+                print("Canceled")
+            }
+            is PaymentSheetResult.Failed -> {
+                print("Error in PS: $paymentSheetResult")
+            }
+            is PaymentSheetResult.Completed -> {
+                // Display for example, an order confirmation screen
+                print("Completed: $paymentSheetResult")
+            }
+        }
     }
 
     /**
@@ -104,8 +150,74 @@ class CheckoutActivity : AppCompatActivity() {
                 Toast.LENGTH_LONG).show()
         }
     }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private suspend fun getNextPaymentIntentSecret(): String {
+        val url = URL("https://api.stripe.com/v1/payment_intents")
+
+        val skTestAuth = "sk_test_51MUx40GoBuCjyED5wdYH3QPvOH31tE8nZ1iU3r3msctFXS2Dr8WSN0O5vDiISq54MMEKgm2TuidQ5lb3TXO16LUK00C2SubU9A:y!E#Ua1Ql#5vJJa4"
+        val basicAuth = "Basic " + String(Base64.getEncoder().encode(skTestAuth.toByteArray()))
+
+        // Create JSON using JSONObject
+        val jsonObject = JSONObject()
+        //jsonObject.put("customer", "cus_NPRYvcnmZK89E4")
+        jsonObject.put("amount", 1099)
+        jsonObject.put("currency", "eur")
+        jsonObject.put("automatic_payment_methods[enabled]", true)
+
+        val json = MediaType.get("application/json; charset=utf-8");
+        val client = OkHttpClient()
+
+        //val body = RequestBody.create(json, jsonObject.toString())
+        val body = FormBody.Builder()
+            .add("amount", "1099")
+            .add("currency", "eur")
+            .add("automatic_payment_methods[enabled]", "true")
+            .build()
+
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", basicAuth)
+            .addHeader("Accept", "application/json")
+            .post(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("Unexpected code $response")
+            return JSONObject(response.body()?.string() ?: "").getString("client_secret")
+        }
+    }
     
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun requestPayment() {
+        PaymentConfiguration.init(this, "pk_test_51MUx40GoBuCjyED5kQPscgz7WfPoeyOXhdehB7BpunRgrhPKrbc367U3VLhGywdvwwEEI6wSVOvYHqg0V3HHVELq008GEj6bdz")
+
+        val googlePayConfiguration = PaymentSheet.GooglePayConfiguration(
+            environment = PaymentSheet.GooglePayConfiguration.Environment.Test,
+            countryCode = "US",
+            currencyCode = "USD" // Required for Setup Intents, optional for Payment Intents
+        )
+
+        val psConfig = PaymentSheet.Configuration(
+            merchantDisplayName = "My merchant name",
+            // Set `allowsDelayedPaymentMethods` to true if your business
+            // can handle payment methods that complete payment after a delay, like SEPA Debit and Sofort.
+            allowsDelayedPaymentMethods = true,
+            googlePay = googlePayConfiguration
+        )
+
+        GlobalScope.launch {
+            val intentSecret = getNextPaymentIntentSecret()
+            withContext(Dispatchers.Main) {
+                paymentSheet.presentWithPaymentIntent(
+                    intentSecret,
+                    psConfig
+                )
+            }
+        }
+
+        //launchDropIn()
+        return
 
         // Disables the button to prevent multiple clicks.
         googlePayButton.isClickable = false
