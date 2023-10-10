@@ -21,7 +21,6 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
-import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -30,6 +29,12 @@ import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
+import com.braintreepayments.api.DropInClient
+import com.braintreepayments.api.DropInListener
+import com.braintreepayments.api.DropInRequest
+import com.braintreepayments.api.DropInResult
+import com.braintreepayments.api.GooglePayRequest
+import com.braintreepayments.api.UserCanceledException
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.ResolvableApiException
@@ -51,19 +56,16 @@ import okhttp3.FormBody
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
 import java.net.URL
 import java.util.*
 
 /**
  * Checkout implementation for the app
  */
-class CheckoutActivity : AppCompatActivity() {
+class CheckoutActivity : AppCompatActivity(), DropInListener {
 
     private val addToGoogleWalletRequestCode = 1000
 
@@ -74,7 +76,8 @@ class CheckoutActivity : AppCompatActivity() {
     private lateinit var layout: ActivityCheckoutBinding
     private lateinit var googlePayButton: View
     private lateinit var addToGoogleWalletButton: View
-    private lateinit var paymentSheet: PaymentSheet
+
+    private var dropInClient: DropInClient? = null
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,7 +87,11 @@ class CheckoutActivity : AppCompatActivity() {
         layout = ActivityCheckoutBinding.inflate(layoutInflater)
         setContentView(layout.root)
 
-        paymentSheet = PaymentSheet(this, ::onPaymentSheetResult)
+        // DropInClient can also be instantiated with a tokenization key
+        dropInClient = DropInClient(this, "")
+
+        // Make sure to register listener in onCreate
+        dropInClient!!.setListener(this)
 
 
         // Setup buttons
@@ -252,6 +259,34 @@ class CheckoutActivity : AppCompatActivity() {
 
             // Re-enables the Google Pay payment button.
             googlePayButton.isClickable = true
+        }
+    }
+
+    private fun launchDropIn() {
+        val dropInRequest = DropInRequest()
+        val googlePayRequest = GooglePayRequest()
+        googlePayRequest.transactionInfo = TransactionInfo.newBuilder()
+            .setTotalPrice("1.00")
+            .setTotalPriceStatus(WalletConstants.TOTAL_PRICE_STATUS_FINAL)
+            .setCurrencyCode("USD")
+            .build()
+        googlePayRequest.isBillingAddressRequired
+        googlePayRequest.billingAddressRequired = true
+
+        dropInRequest.googlePayRequest = googlePayRequest
+        dropInClient?.launchDropIn(dropInRequest)
+    }
+
+    override fun onDropInSuccess(dropInResult: DropInResult) {
+        val paymentMethodNonce = dropInResult.paymentMethodNonce?.string
+        // use the result to update your UI and send the payment method nonce to your server
+    }
+
+    override fun onDropInFailure(error: Exception) {
+        if (error is UserCanceledException) {
+            // the user canceled
+        } else {
+            // handle error
         }
     }
 

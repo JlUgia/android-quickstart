@@ -2,12 +2,10 @@ apply plugin: "com.android.application"
 apply plugin: "kotlin-android"
 
 android {
-    compileSdkVersion 33
-
     defaultConfig {
         applicationId "com.google.android.gms.samples.wallet"
         minSdkVersion 21
-        targetSdkVersion 33
+        targetSdkVersion 34
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -30,7 +28,7 @@ android {
 dependencies {
     def lifecycle_version = "2.4.1"
 
-    implementation 'com.stripe:stripe-android:20.19.2'
+    implementation 'com.braintreepayments.api:drop-in:6.13.0'
     implementation 'com.squareup.okhttp3:okhttp:3.14.7'
 
     implementation 'androidx.appcompat:appcompat:1.4.1'
