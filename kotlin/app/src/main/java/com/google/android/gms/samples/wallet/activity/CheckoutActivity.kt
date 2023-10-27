@@ -45,9 +45,6 @@ import com.google.android.gms.samples.wallet.viewmodel.CheckoutViewModel
 import com.google.android.gms.wallet.PaymentData
 import com.google.android.gms.wallet.TransactionInfo
 import com.google.android.gms.wallet.WalletConstants
-import com.stripe.android.PaymentConfiguration
-import com.stripe.android.paymentsheet.PaymentSheet
-import com.stripe.android.paymentsheet.PaymentSheetResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -77,7 +74,7 @@ class CheckoutActivity : AppCompatActivity(), DropInListener {
     private lateinit var googlePayButton: View
     private lateinit var addToGoogleWalletButton: View
 
-    private var dropInClient: DropInClient? = null
+    private lateinit var dropInClient: DropInClient
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,7 +88,7 @@ class CheckoutActivity : AppCompatActivity(), DropInListener {
         dropInClient = DropInClient(this, "")
 
         // Make sure to register listener in onCreate
-        dropInClient!!.setListener(this)
+        dropInClient.setListener(this)
 
 
         // Setup buttons
@@ -104,23 +101,6 @@ class CheckoutActivity : AppCompatActivity(), DropInListener {
         // Check Google Pay availability
         //model.canUseGooglePay.observe(this, Observer(::setGooglePayAvailable))
         model.canSavePasses.observe(this, Observer(::setAddToGoogleWalletAvailable))
-    }
-
-    private fun onPaymentSheetResult(paymentSheetResult: PaymentSheetResult) {
-        // implemented in the next steps
-        print(paymentSheetResult)
-        when(paymentSheetResult) {
-            is PaymentSheetResult.Canceled -> {
-                print("Canceled")
-            }
-            is PaymentSheetResult.Failed -> {
-                print("Error in PS: $paymentSheetResult")
-            }
-            is PaymentSheetResult.Completed -> {
-                // Display for example, an order confirmation screen
-                print("Completed: $paymentSheetResult")
-            }
-        }
     }
 
     /**
@@ -159,7 +139,7 @@ class CheckoutActivity : AppCompatActivity(), DropInListener {
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    private suspend fun getNextPaymentIntentSecret(): String {
+    private fun getNextPaymentIntentSecret(): String {
         val url = URL("https://api.stripe.com/v1/payment_intents")
 
         val skTestAuth = "sk_test_51MUx40GoBuCjyED5wdYH3QPvOH31tE8nZ1iU3r3msctFXS2Dr8WSN0O5vDiISq54MMEKgm2TuidQ5lb3TXO16LUK00C2SubU9A:y!E#Ua1Ql#5vJJa4"
@@ -197,33 +177,7 @@ class CheckoutActivity : AppCompatActivity(), DropInListener {
     
     @RequiresApi(Build.VERSION_CODES.O)
     private fun requestPayment() {
-        PaymentConfiguration.init(this, "pk_test_51MUx40GoBuCjyED5kQPscgz7WfPoeyOXhdehB7BpunRgrhPKrbc367U3VLhGywdvwwEEI6wSVOvYHqg0V3HHVELq008GEj6bdz")
-
-        val googlePayConfiguration = PaymentSheet.GooglePayConfiguration(
-            environment = PaymentSheet.GooglePayConfiguration.Environment.Test,
-            countryCode = "US",
-            currencyCode = "USD" // Required for Setup Intents, optional for Payment Intents
-        )
-
-        val psConfig = PaymentSheet.Configuration(
-            merchantDisplayName = "My merchant name",
-            // Set `allowsDelayedPaymentMethods` to true if your business
-            // can handle payment methods that complete payment after a delay, like SEPA Debit and Sofort.
-            allowsDelayedPaymentMethods = true,
-            googlePay = googlePayConfiguration
-        )
-
-        GlobalScope.launch {
-            val intentSecret = getNextPaymentIntentSecret()
-            withContext(Dispatchers.Main) {
-                paymentSheet.presentWithPaymentIntent(
-                    intentSecret,
-                    psConfig
-                )
-            }
-        }
-
-        //launchDropIn()
+        launchDropIn()
         return
 
         // Disables the button to prevent multiple clicks.
@@ -270,11 +224,10 @@ class CheckoutActivity : AppCompatActivity(), DropInListener {
             .setTotalPriceStatus(WalletConstants.TOTAL_PRICE_STATUS_FINAL)
             .setCurrencyCode("USD")
             .build()
-        googlePayRequest.isBillingAddressRequired
-        googlePayRequest.billingAddressRequired = true
+        //googlePayRequest.billingAddressRequired = true
 
         dropInRequest.googlePayRequest = googlePayRequest
-        dropInClient?.launchDropIn(dropInRequest)
+        dropInClient.launchDropIn(dropInRequest)
     }
 
     override fun onDropInSuccess(dropInResult: DropInResult) {
