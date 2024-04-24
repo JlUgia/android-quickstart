@@ -23,17 +23,18 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.wallet.contract.TaskResultContracts.GetPaymentDataResult
 import com.google.android.gms.samples.pay.R
 import com.google.android.gms.samples.pay.ui.ProductScreen
 import com.google.android.gms.samples.pay.viewmodel.CheckoutViewModel
-import com.google.android.gms.samples.pay.viewmodel.PaymentUiState
-import com.google.android.gms.samples.pay.viewmodel.awaitTask
-import kotlinx.coroutines.launch
+import com.google.android.gms.samples.pay.viewmodel.OrderState
+import com.google.android.gms.samples.pay.viewmodel.PunchCardSelection
+import com.google.android.gms.samples.pay.viewmodel.PunchCardState
 
 class CheckoutActivity : ComponentActivity() {
+
+    private val addToGoogleWalletRequestCode = 1000
 
     private val paymentDataLauncher = registerForActivityResult(GetPaymentDataResult()) { taskResult ->
         when (taskResult.status.statusCode) {
@@ -54,13 +55,19 @@ class CheckoutActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            val payState: PaymentUiState by model.paymentUiState.collectAsStateWithLifecycle()
+            val payState: OrderState by model.orderState.collectAsStateWithLifecycle()
+            val punchCardState: PunchCardState by model.punchCardState.collectAsStateWithLifecycle()
             ProductScreen(
-                title = "Men's Tech Shell Full-Zip",
-                description = "A versatile full-zip that you can wear all day long and even...",
-                price = "$50.20",
-                image = R.drawable.ts_10_11019a,
+                title = "Chef's Soup",
+                description = "A warm creamy dish with your favorite flavors and all the energy you need to navigate your days",
+                price = "$19.20",
+                image = R.drawable.food_soup,
                 payUiState = payState,
+                punchCardState = punchCardState,
+                onPunchCardSelected = model::setPunchCardSelection,
+                onGoogleWalletButtonClick = {
+                    model.saveCurrentPass(this, addToGoogleWalletRequestCode)
+                },
                 onGooglePayButtonClick = this::requestPayment,
             )
         }

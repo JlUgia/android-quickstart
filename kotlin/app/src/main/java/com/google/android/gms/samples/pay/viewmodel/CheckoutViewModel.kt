@@ -16,12 +16,15 @@
 
 package com.google.android.gms.samples.pay.viewmodel
 
+import android.app.Activity
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.CommonStatusCodes
+import com.google.android.gms.pay.Pay
+import com.google.android.gms.pay.PayClient
 import com.google.android.gms.samples.pay.util.PaymentsUtil
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.tasks.Task
@@ -29,6 +32,7 @@ import com.google.android.gms.wallet.IsReadyToPayRequest
 import com.google.android.gms.wallet.PaymentData
 import com.google.android.gms.wallet.PaymentDataRequest
 import com.google.android.gms.wallet.PaymentsClient
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,16 +47,32 @@ import kotlin.coroutines.resume
 
 class CheckoutViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _paymentUiState: MutableStateFlow<PaymentUiState> =
-        MutableStateFlow(PaymentUiState.NotStarted)
-    val paymentUiState: StateFlow<PaymentUiState> = _paymentUiState.asStateFlow()
+    private val _orderState: MutableStateFlow<OrderState> =
+        MutableStateFlow(OrderState.NotStarted)
+    val orderState: StateFlow<OrderState> = _orderState.asStateFlow()
 
-    // A client for interacting with the Google Pay API.
+    private val _punchCardState: MutableStateFlow<PunchCardState> =
+        MutableStateFlow(PunchCardState.Fetching)
+    val punchCardState: StateFlow<PunchCardState> = _punchCardState.asStateFlow()
+
+    private var punchCardSelection: PunchCardSelection = PunchCardSelection.None
+
+    // A client for interacting with the Google Pay API
     private val paymentsClient: PaymentsClient = PaymentsUtil.createPaymentsClient(application)
+
+    // A client for interacting with the Google Wallet API
+    private val walletClient: PayClient = Pay.getClient(application)
 
     init {
         viewModelScope.launch {
             verifyGooglePayReadiness()
+
+            // Fetch active punch card and change selection if it exists
+            val selection = fetchActivePunchCard()?.let {
+                PunchCardSelection.Existing(it)
+            } ?: PunchCardSelection.New
+
+            setPunchCardSelection(selection = selection)
         }
     }
 
@@ -61,17 +81,17 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
      * a Google Pay payment button.
     ) */
     private suspend fun verifyGooglePayReadiness() {
-        val newUiState: PaymentUiState = try {
+        val newUiState: OrderState = try {
             if (fetchCanUseGooglePay()) {
-                PaymentUiState.Available
+                OrderState.Available
             } else {
-                PaymentUiState.Error(CommonStatusCodes.ERROR)
+                OrderState.Error(CommonStatusCodes.ERROR)
             }
         } catch (exception: ApiException) {
-            PaymentUiState.Error(exception.statusCode, exception.message)
+            OrderState.Error(exception.statusCode, exception.message)
         }
 
-        _paymentUiState.update { newUiState }
+        _orderState.update { newUiState }
     }
 
     /**
@@ -80,6 +100,20 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
     private suspend fun fetchCanUseGooglePay(): Boolean {
         val request = IsReadyToPayRequest.fromJson(PaymentsUtil.isReadyToPayRequest().toString())
         return paymentsClient.isReadyToPay(request).await()
+    }
+
+    private suspend fun fetchActivePunchCard(): PunchCard? {
+        delay(3000)
+        return null
+        //return PunchCard("", "Spring break punch card")
+    }
+
+    private suspend fun updateOrCreatePunchCard() {
+        _punchCardState.update { PunchCardState.Updating }
+
+        delay(2000)
+
+        _punchCardState.update { PunchCardState.Updated("ey") }
     }
 
     /**
@@ -109,10 +143,24 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
 
     fun setPaymentData(paymentData: PaymentData) {
         val payState = extractPaymentBillingName(paymentData)?.let {
-            PaymentUiState.PaymentCompleted(payerName = it)
-        } ?: PaymentUiState.Error(CommonStatusCodes.INTERNAL_ERROR)
 
-        _paymentUiState.update { payState }
+            // Update punch card
+            if (punchCardSelection !is PunchCardSelection.None) {
+                viewModelScope.launch {
+                    updateOrCreatePunchCard()
+                }
+            }
+
+            OrderState.PaymentCompleted(payerName = it, punchCardSelection = punchCardSelection)
+
+        } ?: OrderState.Error(CommonStatusCodes.INTERNAL_ERROR)
+
+        _orderState.update { payState }
+    }
+
+    fun setPunchCardSelection(selection: PunchCardSelection) {
+        punchCardSelection = selection
+        _punchCardState.update { PunchCardState.Active(selection) }
     }
 
     private fun extractPaymentBillingName(paymentData: PaymentData): String? {
@@ -140,14 +188,38 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
 
         return null
     }
+
+    /**
+     * Exposes the `savePassesJwt` method in the wallet client
+     */
+    fun saveCurrentPass(activity: Activity, requestCode: Int) {
+        walletClient.savePassesJwt("ey", activity, requestCode)
+    }
 }
 
-abstract class PaymentUiState internal constructor() {
-    object NotStarted : PaymentUiState()
-    object Available : PaymentUiState()
-    class PaymentCompleted(val payerName: String) : PaymentUiState()
-    class Error(val code: Int, val message: String? = null) : PaymentUiState()
+abstract class OrderState internal constructor() {
+    object NotStarted : OrderState()
+    object Available : OrderState()
+    class PaymentCompleted(val payerName: String, val punchCardSelection: PunchCardSelection) : OrderState()
+    class Error(val code: Int, val message: String? = null) : OrderState()
 }
+
+abstract class PunchCardState internal constructor() {
+    object None : PunchCardState()
+    object Fetching : PunchCardState()
+    class Active(val selection: PunchCardSelection) : PunchCardState()
+    object Updating : PunchCardState()
+    class Updated(val punchCardJwt: String) : PunchCardState()
+
+}
+
+sealed class PunchCardSelection {
+    object None : PunchCardSelection()
+    object New : PunchCardSelection()
+    class Existing(val punchCard: PunchCard) : PunchCardSelection()
+}
+
+data class PunchCard(val id: String, val description: String)
 
 suspend fun <T> Task<T>.awaitTask(cancellationTokenSource: CancellationTokenSource? = null): Task<T> {
     return if (isComplete) this else suspendCancellableCoroutine { cont ->
