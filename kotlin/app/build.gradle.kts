@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.google.android.gms.samples.pay"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -78,6 +78,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:$lifecycleVersion")
     implementation("androidx.activity:activity-ktx:1.9.0")
 
+    // Storage and networking
+    implementation("androidx.datastore:datastore-preferences:1.1.0")
+    implementation("com.github.kittinunf.fuel:fuel:2.3.1")
+    implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")

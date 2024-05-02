@@ -16,10 +16,12 @@
 
 package com.google.android.gms.samples.pay.activity
 
+import android.accounts.AccountManager
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,6 +37,13 @@ import com.google.android.gms.samples.pay.viewmodel.PunchCardState
 class CheckoutActivity : ComponentActivity() {
 
     private val addToGoogleWalletRequestCode = 1000
+
+    private val fixedPriceCents = 1950L
+
+    private val accountChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val userId = it.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME) ?: "test_user_id"
+        model.setUserIdAndDeterminePunchCardSelection(userId)
+    }
 
     private val paymentDataLauncher = registerForActivityResult(GetPaymentDataResult()) { taskResult ->
         when (taskResult.status.statusCode) {
@@ -53,28 +62,48 @@ class CheckoutActivity : ComponentActivity() {
     private val model: CheckoutViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        fetchUserAccountOrLaunchChooser()
 
         setContent {
             val payState: OrderState by model.orderState.collectAsStateWithLifecycle()
             val punchCardState: PunchCardState by model.punchCardState.collectAsStateWithLifecycle()
+
+            val state = punchCardState
+            val hasActiveOffer = state is PunchCardState.Active && state.selection is PunchCardSelection.Existing && state.selection.punchCard.activeOfferIds.isNotEmpty()
+            val discountCents = if (hasActiveOffer) 600L else null
+            val finalPrice = fixedPriceCents - (discountCents ?: 0)
+
             ProductScreen(
                 title = "Chef's Soup",
                 description = "A warm creamy dish with your favorite flavors and all the energy you need to navigate your days",
-                price = "$19.20",
+                priceCents = finalPrice,
+                discountCents = discountCents,
                 image = R.drawable.food_soup,
                 payUiState = payState,
                 punchCardState = punchCardState,
                 onPunchCardSelected = model::setPunchCardSelection,
                 onGoogleWalletButtonClick = {
-                    model.saveCurrentPass(this, addToGoogleWalletRequestCode)
+                    model.saveCurrentPass(it, this, addToGoogleWalletRequestCode)
                 },
-                onGooglePayButtonClick = this::requestPayment,
+                onGooglePayButtonClick = {
+                    requestPayment(finalPrice)
+                },
             )
         }
     }
 
-    private fun requestPayment() {
-        val task = model.getLoadPaymentDataTask(priceCents = 1000L)
+    private fun requestPayment(priceCents: Long) {
+        val task = model.getLoadPaymentDataTask(priceCents)
         task.addOnCompleteListener(paymentDataLauncher::launch)
+    }
+
+    private fun fetchUserAccountOrLaunchChooser() {
+        val userAccounts = AccountManager.get(this).getAccountsByType("com.google")
+        if (userAccounts.isEmpty()) {
+            val intent = AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), null, null, null, null)
+            accountChooserLauncher.launch(intent)
+        } else {
+            model.setUserIdAndDeterminePunchCardSelection(userAccounts.first().name)
+        }
     }
 }
