@@ -16,7 +16,6 @@
 
 package com.google.android.gms.samples.pay.ui
 
-import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -39,10 +38,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,22 +55,25 @@ import com.google.android.gms.samples.pay.viewmodel.PunchCardSelection
 import com.google.android.gms.samples.pay.viewmodel.PunchCardState
 import com.google.pay.button.PayButton
 import com.google.wallet.button.WalletButton
+import java.lang.IllegalStateException
 
 @Composable
 fun ProductScreen(
     title: String,
     description: String,
-    price: String,
+    priceCents: Long,
+    discountCents: Long?,
     image: Int,
     onGooglePayButtonClick: () -> Unit,
     punchCardState: PunchCardState,
     onPunchCardSelected: (selection: PunchCardSelection) -> Unit,
-    onGoogleWalletButtonClick: () -> Unit,
+    onGoogleWalletButtonClick: (passJwt: String) -> Unit,
     payUiState: OrderState,
 ) {
     val padding = 40.dp
     val black = Color(0xff000000.toInt())
     val grey = Color(0xffeeeeee.toInt())
+    val discountGreen = Color(0xff008800.toInt())
 
     if (payUiState is OrderState.PaymentCompleted) {
         Column(
@@ -111,28 +109,44 @@ fun ProductScreen(
                     verticalArrangement = Arrangement.Top,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    val loyaltyTitle = if (punchCardState.cardIsComplete()) {
+                        "You have completed your punch card!"
+                    } else {
+                        "You have accumulated one point!"
+                    }
                     Text(
                         modifier = Modifier.fillMaxWidth(),
-                        text = "You have accumulated one point!",
+                        text = loyaltyTitle,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.DarkGray,
                         textAlign = TextAlign.Start
                     )
 
-                    val punchCardDetailText = if (payUiState.punchCardSelection is PunchCardSelection.New) {
-                        if (punchCardState is PunchCardState.Updating) {
-                            "We are creating your new punch card. Collect points with every order and earn a reward when you complete the card!"
-                        } else {
-                            "Add your new punch card to Google Wallet to keep track of your progress, and make new orders to collect more points!"
+                    val creatingNewCard = payUiState.punchCardSelection is PunchCardSelection.New
+                    val punchCardDetailText = when (punchCardState) {
+                        is PunchCardState.Updating -> {
+                            if (creatingNewCard) {
+                                "We are creating your new punch card. Collect points with every order and earn a reward when you complete the card!"
+                            } else {
+                                "We are updating your punch card..."
+                            }
                         }
-                    } else {
-                        if (punchCardState is PunchCardState.Updating) {
-                            "We are updating your punch card..."
-                        } else {
-                            "You are 3 points away from your next reward. Check your pass on Google Wallet to keep track of your progress"
+                        is PunchCardState.Updated -> {
+                            if (creatingNewCard) {
+                                "Add your new punch card to Google Wallet to keep track of your progress, and make new orders to collect more points!"
+                            } else {
+                                if (punchCardState.cardIsComplete()) {
+                                    "Your card will be reset and you'll enjoy a discount for your next order!\nContinue to track your progress on Google Wallet"
+                                } else {
+                                    val remainingPoints = 10 - punchCardState.punchCard.points
+                                    "You are $remainingPoints point${if (remainingPoints > 1) "s" else ""} away from your next reward. Check your pass on Google Wallet to keep track of your progress"
+                                }
+                            }
                         }
+                        else -> throw IllegalStateException()
                     }
+
                     Text(
                         modifier = Modifier.fillMaxWidth(),
                         text = punchCardDetailText,
@@ -147,13 +161,14 @@ fun ProductScreen(
                             color = MaterialTheme.colorScheme.secondary,
                             trackColor = MaterialTheme.colorScheme.surfaceVariant,
                         )
-                        is PunchCardState.Updated -> if (payUiState.punchCardSelection is PunchCardSelection.New)
+                        is PunchCardState.Updated ->
                             WalletButton(
                                 modifier = Modifier.fillMaxWidth(),
-                                onClick = onGoogleWalletButtonClick,
+                                onClick = {
+                                    onGoogleWalletButtonClick(punchCardState.punchCard.jwtRepresentation)
+                                },
                             )
                     }
-
                 }
             }
         }
@@ -177,7 +192,14 @@ fun ProductScreen(
                 Text(
                     text = title, color = black, fontSize = 20.sp, fontWeight = FontWeight.Bold
                 )
-                Text(text = price, color = black)
+                Text(text = String.format("$%.2f", priceCents.toDouble() / 100), color = black)
+                if (discountCents != null) {
+                    Text(
+                        text = "(includes $${String.format("%.2f", discountCents.toDouble() / 100)} punch-card discount)",
+                        fontSize = 12.sp,
+                        color = discountGreen
+                    )
+                }
             }
             Text(
                 text = "Description", color = black, fontWeight = FontWeight.Bold
@@ -220,13 +242,12 @@ fun PunchCardSelector(
 
     val hasExistingCard = state is PunchCardState.Active && state.selection is PunchCardSelection.Existing
     val hasNoCard = state is PunchCardState.Active && state.selection is PunchCardSelection.None
-    val selected = state is PunchCardState.Active && state.selection !is PunchCardSelection.None
 
     val label: String = when (state) {
         is PunchCardState.Fetching -> "Loading..."
         is PunchCardState.Active -> when (state.selection) {
-            is PunchCardSelection.Existing -> state.selection.punchCard.description
-            else -> if (selected) "A new punch card will be created" else "Create new punch card and get free meals"
+            is PunchCardSelection.Existing -> state.selection.punchCard.programName
+            else -> if (state.selection is PunchCardSelection.None) "Create a punch card and get free meals" else "A new punch card will be created"
         }
 
         else -> throw RuntimeException()
@@ -235,7 +256,7 @@ fun PunchCardSelector(
     FilterChip(
         modifier = modifier,
         enabled = state !is PunchCardState.Fetching,
-        selected = selected,
+        selected = hasExistingCard,
         onClick = {
             if (!hasExistingCard) {
                 onPunchCardSelected(if (hasNoCard) PunchCardSelection.New else PunchCardSelection.None)
