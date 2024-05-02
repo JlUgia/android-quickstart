@@ -18,13 +18,20 @@ package com.google.android.gms.samples.pay.viewmodel
 
 import android.app.Activity
 import android.app.Application
+import android.content.Context
 import android.util.Log
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.github.kittinunf.result.getOrNull
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.pay.Pay
 import com.google.android.gms.pay.PayClient
+import com.google.android.gms.samples.pay.data.model.PunchCard
+import com.google.android.gms.samples.pay.data.repository.PunchCardRepository
 import com.google.android.gms.samples.pay.util.PaymentsUtil
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.tasks.Task
@@ -32,7 +39,7 @@ import com.google.android.gms.wallet.IsReadyToPayRequest
 import com.google.android.gms.wallet.PaymentData
 import com.google.android.gms.wallet.PaymentDataRequest
 import com.google.android.gms.wallet.PaymentsClient
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,10 +47,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 class CheckoutViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -56,6 +65,7 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
     val punchCardState: StateFlow<PunchCardState> = _punchCardState.asStateFlow()
 
     private var punchCardSelection: PunchCardSelection = PunchCardSelection.None
+    private val punchCardRepository: PunchCardRepository = PunchCardRepository()
 
     // A client for interacting with the Google Pay API
     private val paymentsClient: PaymentsClient = PaymentsUtil.createPaymentsClient(application)
@@ -63,16 +73,23 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
     // A client for interacting with the Google Wallet API
     private val walletClient: PayClient = Pay.getClient(application)
 
+    private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+    private lateinit var userId: String
+
     init {
         viewModelScope.launch {
             verifyGooglePayReadiness()
+        }
+    }
 
-            // Fetch active punch card and change selection if it exists
-            val selection = fetchActivePunchCard()?.let {
+    fun setUserIdAndDeterminePunchCardSelection(userAccountName: String) {
+        userId = userAccountName.replace("[@.]".toRegex(), "") + "_test"
+
+        // Fetch active punch card and change selection if it exists
+        viewModelScope.launch {
+            setPunchCardSelection(selection = fetchActivePunchCard()?.let {
                 PunchCardSelection.Existing(it)
-            } ?: PunchCardSelection.New
-
-            setPunchCardSelection(selection = selection)
+            } ?: PunchCardSelection.New)
         }
     }
 
@@ -102,18 +119,25 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
         return paymentsClient.isReadyToPay(request).await()
     }
 
-    private suspend fun fetchActivePunchCard(): PunchCard? {
-        delay(3000)
-        return null
-        //return PunchCard("", "Spring break punch card")
+    private suspend fun fetchActivePunchCard(): PunchCard? = withContext(Dispatchers.IO) {
+        punchCardRepository.getActiveCard(userId)
+            .third.getOrNull()
+            ?.let(::PunchCard)
+            ?.takeIf {
+                it.id.endsWith(userId)
+            }
     }
 
     private suspend fun updateOrCreatePunchCard() {
         _punchCardState.update { PunchCardState.Updating }
 
-        delay(2000)
+        val newCardState = withContext(Dispatchers.IO) {
+            punchCardRepository.addPointToCard(userId)
+                .third.getOrNull()
+                ?.let(::PunchCard)
+                }?.let(PunchCardState::Updated) ?: PunchCardState.None
 
-        _punchCardState.update { PunchCardState.Updated("ey") }
+        _punchCardState.update { newCardState }
     }
 
     /**
@@ -192,8 +216,8 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
     /**
      * Exposes the `savePassesJwt` method in the wallet client
      */
-    fun saveCurrentPass(activity: Activity, requestCode: Int) {
-        walletClient.savePassesJwt("ey", activity, requestCode)
+    fun saveCurrentPass(passJwt: String, activity: Activity, requestCode: Int) {
+        walletClient.savePassesJwt(passJwt, activity, requestCode)
     }
 }
 
@@ -209,8 +233,9 @@ abstract class PunchCardState internal constructor() {
     object Fetching : PunchCardState()
     class Active(val selection: PunchCardSelection) : PunchCardState()
     object Updating : PunchCardState()
-    class Updated(val punchCardJwt: String) : PunchCardState()
+    class Updated(val punchCard: PunchCard) : PunchCardState()
 
+    fun cardIsComplete() = this is Updated && punchCard.points == 0
 }
 
 sealed class PunchCardSelection {
@@ -218,8 +243,6 @@ sealed class PunchCardSelection {
     object New : PunchCardSelection()
     class Existing(val punchCard: PunchCard) : PunchCardSelection()
 }
-
-data class PunchCard(val id: String, val description: String)
 
 suspend fun <T> Task<T>.awaitTask(cancellationTokenSource: CancellationTokenSource? = null): Task<T> {
     return if (isComplete) this else suspendCancellableCoroutine { cont ->
