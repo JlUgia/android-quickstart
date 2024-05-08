@@ -83,7 +83,7 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setUserIdAndDeterminePunchCardSelection(userAccountName: String) {
-        userId = userAccountName.replace("[@.]".toRegex(), "") + "_test"
+        userId = userAccountName
 
         // Fetch active punch card and change selection if it exists
         viewModelScope.launch {
@@ -123,9 +123,6 @@ class CheckoutViewModel(application: Application) : AndroidViewModel(application
         punchCardRepository.getActiveCard(userId)
             .third.getOrNull()
             ?.let(::PunchCard)
-            ?.takeIf {
-                it.id.endsWith(userId)
-            }
     }
 
     private suspend fun updateOrCreatePunchCard() {
