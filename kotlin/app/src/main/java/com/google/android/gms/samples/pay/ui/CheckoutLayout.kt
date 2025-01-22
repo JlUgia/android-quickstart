@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -38,9 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.samples.pay.R
-import com.google.android.gms.samples.pay.util.PaymentsUtil
 import com.google.android.gms.samples.pay.viewmodel.PaymentUiState
-import com.google.pay.button.PayButton
 
 @Composable
 fun ProductScreen(
@@ -48,7 +47,6 @@ fun ProductScreen(
     description: String,
     price: String,
     image: Int,
-    onGooglePayButtonClick: () -> Unit,
     payUiState: PaymentUiState = PaymentUiState.NotStarted,
 ) {
     val padding = 20.dp
@@ -98,30 +96,21 @@ fun ProductScreen(
                     .height(350.dp)
             )
             Text(
-                text = title,
-                color = black,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
+                text = title, color = black, fontSize = 20.sp, fontWeight = FontWeight.Bold
             )
             Text(text = price, color = black)
             Spacer(Modifier)
             Text(
-                text = "Description",
-                color = black,
-                fontWeight = FontWeight.Bold
+                text = "Description", color = black, fontWeight = FontWeight.Bold
             )
             Text(
-                text = description,
-                color = black
+                text = description, color = black
             )
+            Button({}, modifier = Modifier.fillMaxWidth()) {
+                Text("Pay")
+            }
             if (payUiState !is PaymentUiState.NotStarted) {
-                PayButton(
-                    modifier = Modifier
-                        .testTag("payButton")
-                        .fillMaxWidth(),
-                    onClick = onGooglePayButtonClick,
-                    allowedPaymentMethods = PaymentsUtil.allowedPaymentMethods.toString()
-                )
+
             }
         }
     }

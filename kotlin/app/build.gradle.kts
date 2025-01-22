@@ -57,9 +57,6 @@ android {
 }
 
 dependencies {
-    implementation(libs.play.services.wallet)
-    implementation(libs.compose.pay.button)
-
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     implementation(libs.androidx.compose.foundation)
@@ -71,8 +68,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
-
-    implementation(libs.kotlinx.coroutines.play)
 
     androidTestImplementation(composeBom)
     androidTestImplementation(libs.androidx.uiautomator)

@@ -17,36 +17,17 @@
 package com.google.android.gms.samples.pay.activity
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
-import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.samples.pay.R
 import com.google.android.gms.samples.pay.ui.ProductScreen
 import com.google.android.gms.samples.pay.viewmodel.CheckoutViewModel
 import com.google.android.gms.samples.pay.viewmodel.PaymentUiState
-import com.google.android.gms.samples.pay.viewmodel.awaitTask
-import com.google.android.gms.wallet.contract.TaskResultContracts.GetPaymentDataResult
-import kotlinx.coroutines.launch
 
 class CheckoutActivity : ComponentActivity() {
-
-    private val paymentDataLauncher =
-        registerForActivityResult(GetPaymentDataResult()) { taskResult ->
-            when (taskResult.status.statusCode) {
-                CommonStatusCodes.SUCCESS -> taskResult.result!!.let {
-                    Log.i("Google Pay result:", it.toJson())
-                    model.setPaymentData(it)
-                }
-                //CommonStatusCodes.CANCELED -> The user canceled
-                //CommonStatusCodes.DEVELOPER_ERROR -> The API returned an error (it.status: Status)
-                //else -> Handle internal and other unexpected errors
-            }
-        }
 
     private val model: CheckoutViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,16 +40,8 @@ class CheckoutActivity : ComponentActivity() {
                 description = "A versatile full-zip that you can wear all day long and even...",
                 price = "$50.20",
                 image = R.drawable.ts_10_11019a,
-                payUiState = payState,
-                onGooglePayButtonClick = ::requestPayment,
+                payUiState = payState
             )
-        }
-    }
-
-    private fun requestPayment() {
-        lifecycleScope.launch {
-            val task = model.getLoadPaymentDataTask(priceLabel = "50.2").awaitTask()
-            paymentDataLauncher.launch(task)
         }
     }
 }

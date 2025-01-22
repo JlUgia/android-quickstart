@@ -18,8 +18,6 @@ package com.google.android.gms.samples.pay.util
 
 import android.content.Context
 import com.google.android.gms.samples.pay.Constants
-import com.google.android.gms.wallet.PaymentsClient
-import com.google.android.gms.wallet.Wallet
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -153,13 +151,6 @@ object PaymentsUtil {
      *
      * @param context from the caller activity.
      */
-    fun createPaymentsClient(context: Context): PaymentsClient {
-        val walletOptions = Wallet.WalletOptions.Builder()
-            .setEnvironment(Constants.PAYMENTS_ENVIRONMENT)
-            .build()
-
-        return Wallet.getPaymentsClient(context, walletOptions)
-    }
 
     /**
      * Provide Google Pay API with a payment amount, currency, and amount status.
